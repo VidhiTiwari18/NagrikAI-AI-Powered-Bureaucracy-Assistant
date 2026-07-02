@@ -1,18 +1,9 @@
 from fastapi import FastAPI, UploadFile, File
-import easyocr
-from google import genai
-from dotenv import load_dotenv
-import os
+from fastapi.responses import JSONResponse
 from app.services.ocr_service import extract_text
+from app.services.gemini_service import classify_document
 
 app = FastAPI()
-
-load_dotenv()
-
-# Gemini Setup
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
 
 @app.get("/")
 def home():
@@ -22,50 +13,34 @@ def home():
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-
+    # Read uploaded file
     content = await file.read()
 
+    # Validate file extension
     extension = file.filename.split(".")[-1].lower()
-
     allowed_extensions = ["jpg", "jpeg", "png"]
 
     if extension not in allowed_extensions:
-        return {
-            "error": "Only JPG, JPEG and PNG files are allowed"
-        }
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Only JPG, JPEG and PNG files are allowed"
+            }
+        )
 
+    # Save uploaded file
     file_path = f"uploads/{file.filename}"
 
     with open(file_path, "wb") as f:
         f.write(content)
 
-        extracted_text = extract_text(file_path)
+    # Extract text using OCR service
+    extracted_text = extract_text(file_path)
 
-    # Gemini Classification
-    prompt = f"""
-You are a document classification system.
+    # Classify document using Gemini service
+    document_type = classify_document(extracted_text)
 
-Classify the document into ONLY one of these categories:
-
-- Marksheet
-- Caste Certificate
-- Passport
-- Scholarship Document
-- Unknown
-
-Document Text:
-{extracted_text}
-
-Return only the category name.
-"""
-
-    response = client.models.generate_content(
-    model="gemini-2.5-flash",
-    contents=prompt
-    )
-
-    document_type = response.text.strip()
-
+    # Return response
     return {
         "filename": file.filename,
         "document_type": document_type,
