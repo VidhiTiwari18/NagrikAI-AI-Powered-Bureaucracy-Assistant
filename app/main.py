@@ -1,16 +1,18 @@
 from fastapi import FastAPI, UploadFile, File
 import easyocr
-import google.generativeai as genai
+from google import genai
+from dotenv import load_dotenv
+import os
+from app.services.ocr_service import extract_text
 
 app = FastAPI()
 
-# OCR Model
-reader = easyocr.Reader(['en'])
+load_dotenv()
 
 # Gemini Setup
-genai.configure(api_key="NagrikAI")
-
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
 
 @app.get("/")
 def home():
@@ -37,12 +39,7 @@ async def upload_document(file: UploadFile = File(...)):
     with open(file_path, "wb") as f:
         f.write(content)
 
-    # OCR
-    result = reader.readtext(file_path)
-
-    extracted_text = "\n".join(
-        [item[1] for item in result]
-    )
+        extracted_text = extract_text(file_path)
 
     # Gemini Classification
     prompt = f"""
@@ -62,7 +59,10 @@ Document Text:
 Return only the category name.
 """
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents=prompt
+    )
 
     document_type = response.text.strip()
 
