@@ -1,12 +1,4 @@
-from google import genai
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
+from app.core.gemini_client import client
 
 
 def classify_document(extracted_text: str) -> str:
