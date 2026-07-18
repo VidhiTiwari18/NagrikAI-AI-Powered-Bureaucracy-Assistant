@@ -4,30 +4,32 @@ from app.core.gemini_client import client
 
 
 def extract_document_information(extracted_text: str) -> dict:
-    prompt = f"""
-You are an AI document information extraction system.
+   prompt = f"""
+You are an expert AI system for extracting information from Indian government documents.
 
-Analyze the document text below.
+Rules:
+1. Use ONLY the information present in the document.
+2. Never guess or invent values.
+3. If a field is missing, return "Not Found".
+4. Do not confuse officer names, digital signature names, or issuing authority names with the person's name.
+5. Extract the primary person's information only.
+6. Return ONLY valid JSON.
 
-Extract all important information.
-
-Return ONLY valid JSON.
-
-Example:
+Format:
 
 {{
-    "confidence": 98,
-    "fields": {{
-        "Name": "...",
-        "Document Number": "...",
-        "Date of Birth": "...",
-        "University": "...",
-        "CGPA": "..."
-    }}
+  "confidence": 0,
+  "fields": {{
+    "Name": "",
+    "Father Name": "",
+    "Mother Name": "",
+    "Date of Birth": "",
+    "Document Number": "",
+    "Issuing Authority": ""
+  }}
 }}
 
 Document Text:
-
 {extracted_text}
 """
 

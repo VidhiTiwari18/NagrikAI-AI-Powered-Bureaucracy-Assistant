@@ -7,9 +7,18 @@ You are a document classification system.
 
 Classify the document into ONLY one of these categories:
 
-- Marksheet
-- Caste Certificate
+- Aadhaar Card
+- PAN Card
 - Passport
+- Driving License
+- Voter ID
+- Birth Certificate
+- Death Certificate
+- Income Certificate
+- Domicile Certificate
+- Caste Certificate
+- Marksheet
+- Degree Certificate
 - Scholarship Document
 - Unknown
 
