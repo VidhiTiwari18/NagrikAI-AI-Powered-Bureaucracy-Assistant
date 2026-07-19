@@ -1,8 +1,10 @@
+import os
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 
+from app.schemas.response_schema import DocumentResponse
 from app.services.ocr_service import extract_text
-from app.services.gemini_service import classify_document
 from app.services.extraction_service import extract_document_information
 
 app = FastAPI()
@@ -15,7 +17,7 @@ def home():
     }
 
 
-@app.post("/upload")
+@app.post("/upload", response_model=DocumentResponse)
 async def upload_document(file: UploadFile = File(...)):
     # Read uploaded file
     content = await file.read()
@@ -32,6 +34,9 @@ async def upload_document(file: UploadFile = File(...)):
             }
         )
 
+    # Create uploads folder if it doesn't exist
+    os.makedirs("uploads", exist_ok=True)
+
     # Save uploaded file
     file_path = f"uploads/{file.filename}"
 
@@ -41,17 +46,25 @@ async def upload_document(file: UploadFile = File(...)):
     # OCR
     extracted_text = extract_text(file_path)
 
-    # Document Classification
-    document_type = classify_document(extracted_text)
+    # Gemini Vision Extraction
+    document_information = extract_document_information(
+        image_path=file_path,
+        extracted_text=extracted_text
+    )
 
-    # Information Extraction
-    document_information = extract_document_information(extracted_text)
-
-    # Return Response
-    return {
-        "filename": file.filename,
-        "document_type": document_type,
-        "confidence": document_information.get("confidence", 0),
-        "fields": document_information.get("fields", {}),
-        "extracted_text": extracted_text
-    }
+    # Return validated response
+    return DocumentResponse(
+        filename=file.filename,
+        document_type=document_information.get("document_type", "Unknown"),
+        confidence=document_information.get("confidence", 0),
+        fields=document_information.get("fields", {}),
+        validation=document_information.get(
+            "validation",
+            {
+                "is_complete": False,
+                "missing_fields": [],
+                "warnings": []
+            }
+        ),
+        extracted_text=extracted_text,
+    )
