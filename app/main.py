@@ -1,13 +1,19 @@
 import os
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import Depends, FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
+from app.database import models
+from app.database.database import Base, engine, get_db
+from app.database.models import Document
 from app.schemas.response_schema import DocumentResponse
-from app.services.ocr_service import extract_text
 from app.services.extraction_service import extract_document_information
+from app.services.ocr_service import extract_text
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
@@ -18,7 +24,10 @@ def home():
 
 
 @app.post("/upload", response_model=DocumentResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     # Read uploaded file
     content = await file.read()
 
@@ -51,6 +60,27 @@ async def upload_document(file: UploadFile = File(...)):
         image_path=file_path,
         extracted_text=extracted_text
     )
+
+    # Save to Database
+    document = Document(
+        filename=file.filename,
+        document_type=document_information.get("document_type", "Unknown"),
+        confidence=document_information.get("confidence", 0),
+        extracted_fields=document_information.get("fields", {}),
+        validation=document_information.get(
+            "validation",
+            {
+                "is_complete": False,
+                "missing_fields": [],
+                "warnings": []
+            }
+        ),
+        ocr_text=extracted_text,
+    )
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
 
     # Return validated response
     return DocumentResponse(
