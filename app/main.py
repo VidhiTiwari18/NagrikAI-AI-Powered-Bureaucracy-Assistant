@@ -1,9 +1,8 @@
 import os
-
 from fastapi import Depends, FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-
+from app.crud.document_crud import (get_all_documents,get_document_by_id,)
 from app.database import models
 from app.database.database import Base, engine, get_db
 from app.database.models import Document
@@ -21,7 +20,29 @@ def home():
     return {
         "message": "NagrikAI is running"
     }
+@app.get("/documents")
+def read_documents(
+    db: Session = Depends(get_db)
+):
+    documents = get_all_documents(db)
+    return documents
 
+@app.get("/documents/{document_id}")
+def read_document(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    document = get_document_by_id(db, document_id)
+
+    if document is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Document not found"
+            }
+        )
+
+    return document
 
 @app.post("/upload", response_model=DocumentResponse)
 async def upload_document(
