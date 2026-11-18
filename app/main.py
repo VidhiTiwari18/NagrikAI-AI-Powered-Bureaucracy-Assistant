@@ -12,6 +12,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
@@ -34,19 +35,39 @@ from app.database.models import Document
 
 from app.schemas.response_schema import DocumentResponse
 from app.schemas.update_schema import UpdateDocumentRequest
+
 from app.schemas.application_schema import (
     ApplicationCreate,
     ApplicationResponse,
 )
 
+from app.schemas.passport_schema import PassportChecklistRequest
+
 from app.services.extraction_service import extract_document_information
 from app.services.ocr_service import extract_text
+from app.services.passport_rules import build_passport_document_checklist
 
+
+# --------------------------------------------------
+# APPLICATION CONFIGURATION
+# --------------------------------------------------
 
 app = FastAPI(
     title="NagrikAI",
     description="AI-powered Indian Government Document Assistance System",
     version="1.0.0",
+)
+
+# Allow communication between React frontend and FastAPI backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 logger = logging.getLogger(__name__)
@@ -125,6 +146,36 @@ def read_application(
         )
 
     return application
+
+
+# --------------------------------------------------
+# PASSPORT CHECKLIST API
+# --------------------------------------------------
+
+@app.post(
+    "/passport/checklist",
+    tags=["Passport"],
+)
+def get_passport_checklist(
+    request: PassportChecklistRequest,
+):
+    """
+    Generate a document checklist for an adult,
+    fresh ordinary passport application under the
+    initial Normal processing workflow.
+
+    This is guidance, not an official eligibility decision.
+    """
+
+    checklist = build_passport_document_checklist(
+        is_non_ecr_eligible=request.is_non_ecr_eligible,
+        claims_non_ecr=request.claims_non_ecr,
+        post_police_verification_required=(
+            request.post_police_verification_required
+        ),
+    )
+
+    return checklist
 
 
 # --------------------------------------------------
