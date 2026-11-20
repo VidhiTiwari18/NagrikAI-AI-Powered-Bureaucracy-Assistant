@@ -22,9 +22,19 @@ import {
   ArrowRight,
   CircleHelp,
   RefreshCw,
+  Pencil,
+  Trash2,
+  X,
+  Save,
 } from "lucide-react";
 
-import { getApplications, getDocuments } from "./services/api";
+import {
+  getApplications,
+  getDocuments,
+  createApplication,
+  updateApplication,
+  deleteApplication,
+} from "./services/api";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
@@ -33,6 +43,24 @@ const navigation = [
   { label: "AI Assistant", icon: Bot },
   { label: "Document Checklist", icon: ClipboardCheck },
 ];
+
+const APPLICATION_STATUSES = [
+  "draft",
+  "submitted",
+  "pending",
+  "in_progress",
+  "completed",
+  "approved",
+  "rejected",
+];
+
+const emptyForm = {
+  applicant_name: "",
+  date_of_birth: "",
+  service_type: "fresh",
+  processing_type: "normal",
+  citizenship_basis: "birth",
+};
 
 function formatDate(dateString) {
   if (!dateString) return "Date unavailable";
@@ -91,6 +119,12 @@ function getStatusClasses(status) {
   return "bg-[#EAF0E9] text-[#39735B]";
 }
 
+function getMaximumDateOfBirth() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() - 18);
+  return date.toISOString().split("T")[0];
+}
+
 function App() {
   const [activePage, setActivePage] = useState("Overview");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -99,10 +133,17 @@ function App() {
   const [documents, setDocuments] = useState([]);
 
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingApplication, setEditingApplication] = useState(null);
+  const [formData, setFormData] = useState(emptyForm);
+  const [formError, setFormError] = useState("");
 
   async function loadDashboardData() {
     try {
@@ -132,6 +173,167 @@ function App() {
   useEffect(() => {
     loadDashboardData();
   }, []);
+
+  function showSuccess(message) {
+    setSuccess(message);
+    setError("");
+  }
+
+  function changePage(page) {
+    setActivePage(page);
+    setMobileMenuOpen(false);
+    setError("");
+    setSuccess("");
+  }
+
+  function openCreateModal() {
+    setEditingApplication(null);
+    setFormData(emptyForm);
+    setFormError("");
+    setModalOpen(true);
+  }
+
+  function openEditModal(application) {
+    setEditingApplication(application);
+    setFormData({
+      applicant_name: application.applicant_name || "",
+      date_of_birth: application.date_of_birth || "",
+      service_type: application.service_type || "fresh",
+      processing_type: application.processing_type || "normal",
+      citizenship_basis: application.citizenship_basis || "birth",
+    });
+    setFormError("");
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    if (saving) return;
+
+    setModalOpen(false);
+    setEditingApplication(null);
+    setFormData(emptyForm);
+    setFormError("");
+  }
+
+  function handleFormChange(event) {
+    const { name, value } = event.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  async function handleApplicationSubmit(event) {
+    event.preventDefault();
+    setFormError("");
+
+    const applicantName = formData.applicant_name.trim();
+
+    if (applicantName.length < 2) {
+      setFormError("Applicant name must contain at least 2 characters.");
+      return;
+    }
+
+    if (!formData.date_of_birth) {
+      setFormError("Please enter the date of birth.");
+      return;
+    }
+
+    const dob = new Date(`${formData.date_of_birth}T00:00:00`);
+    const today = new Date();
+    const minimumDate = new Date(
+      `${getMaximumDateOfBirth()}T00:00:00`
+    );
+
+    if (
+      Number.isNaN(dob.getTime()) ||
+      dob >= today ||
+      dob > minimumDate
+    ) {
+      setFormError("Applicant must be at least 18 years old.");
+      return;
+    }
+
+    const payload = {
+      applicant_name: applicantName,
+      date_of_birth: formData.date_of_birth,
+      service_type: formData.service_type,
+      processing_type: formData.processing_type,
+      citizenship_basis: formData.citizenship_basis,
+    };
+
+    try {
+      setSaving(true);
+
+      if (editingApplication) {
+        await updateApplication(editingApplication.id, payload);
+        showSuccess("Application updated successfully.");
+      } else {
+        await createApplication(payload);
+        showSuccess("New application created successfully.");
+      }
+
+      setModalOpen(false);
+      setEditingApplication(null);
+      setFormData(emptyForm);
+
+      await loadDashboardData();
+    } catch (err) {
+      console.error("Application save error:", err);
+      setFormError(err.message || "Unable to save application.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStatusChange(application, newStatus) {
+    if (!newStatus || newStatus === application.application_status) {
+      return;
+    }
+
+    try {
+      setError("");
+      setSuccess("");
+
+      await updateApplication(application.id, {
+        application_status: newStatus,
+      });
+
+      showSuccess(
+        `Application #${application.id} status updated successfully.`
+      );
+
+      await loadDashboardData();
+    } catch (err) {
+      console.error("Status update error:", err);
+      setError(err.message || "Unable to update application status.");
+    }
+  }
+
+  async function handleDeleteApplication(application) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete application #${application.id} belonging to ${application.applicant_name}? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setSuccess("");
+
+      await deleteApplication(application.id);
+
+      showSuccess(
+        `Application #${application.id} deleted successfully.`
+      );
+
+      await loadDashboardData();
+    } catch (err) {
+      console.error("Application deletion error:", err);
+      setError(err.message || "Unable to delete application.");
+    }
+  }
 
   const totalApplications = applications.length;
 
@@ -202,15 +404,9 @@ function App() {
     });
   }, [applications, searchTerm, statusFilter]);
 
-  const changePage = (page) => {
-    setActivePage(page);
-    setMobileMenuOpen(false);
-  };
-
   return (
     <div className="min-h-screen bg-[#F8F5EC] text-[#183D32]">
       <div className="flex min-h-screen">
-
         {/* Sidebar */}
         <aside
           className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[#E7E3D8] bg-[#FFFCF5] px-5 py-6 transition-transform lg:static lg:translate-x-0 ${
@@ -289,7 +485,6 @@ function App() {
 
         {/* Main area */}
         <main className="min-w-0 flex-1">
-
           {/* Header */}
           <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between border-b border-[#E7E3D8] bg-[#FFFCF5]/95 px-5 backdrop-blur md:px-9">
             <div className="flex items-center gap-3">
@@ -305,9 +500,7 @@ function App() {
                 <p className="text-xs text-[#8A968A]">
                   Workspace / {activePage}
                 </p>
-                <h2 className="text-sm font-semibold">
-                  {activePage}
-                </h2>
+                <h2 className="text-sm font-semibold">{activePage}</h2>
               </div>
             </div>
 
@@ -345,16 +538,30 @@ function App() {
           </header>
 
           <div className="mx-auto max-w-[1450px] px-5 py-8 md:px-9 md:py-10">
-
+            {/* Notifications */}
             {error && (
-              <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                <span>Unable to load dashboard data: {error}</span>
-
+              <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <span>{error}</span>
                 <button
                   onClick={loadDashboardData}
                   className="inline-flex shrink-0 items-center gap-2 font-semibold"
                 >
                   <RefreshCw size={15} /> Retry
+                </button>
+              </div>
+            )}
+
+            {success && (
+              <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                <span className="flex items-center gap-2">
+                  <CheckCircle2 size={17} />
+                  {success}
+                </span>
+                <button
+                  onClick={() => setSuccess("")}
+                  aria-label="Dismiss success message"
+                >
+                  <X size={17} />
                 </button>
               </div>
             )}
@@ -374,14 +581,12 @@ function App() {
                     </h1>
 
                     <p className="mt-2 text-sm text-[#849083]">
-                      View and track applications saved in your NagrikAI account.
+                      View and manage applications saved in your NagrikAI account.
                     </p>
                   </div>
 
                   <button
-                    onClick={() =>
-                      alert("Application creation will be connected in the next step.")
-                    }
+                    onClick={openCreateModal}
                     className="flex items-center justify-center gap-2 rounded-xl bg-[#183D32] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#285643]"
                   >
                     <Plus size={17} /> New application
@@ -411,7 +616,6 @@ function App() {
                       <p className="text-xs text-[#899387]">
                         {item.label}
                       </p>
-
                       <p className="mt-2 text-3xl font-semibold">
                         {loading
                           ? "—"
@@ -436,7 +640,6 @@ function App() {
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <div className="flex items-center gap-2 rounded-xl border border-[#E7E3D8] bg-white px-3 py-2">
                         <Search size={16} className="text-[#899387]" />
-
                         <input
                           value={searchTerm}
                           onChange={(event) =>
@@ -460,6 +663,18 @@ function App() {
                         <option value="completed">Completed</option>
                         <option value="rejected">Rejected</option>
                       </select>
+
+                      <button
+                        onClick={loadDashboardData}
+                        disabled={loading}
+                        className="flex items-center justify-center gap-2 rounded-xl border border-[#E7E3D8] bg-white px-3 py-2 text-sm hover:bg-[#F4F2EA] disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          size={15}
+                          className={loading ? "animate-spin" : ""}
+                        />
+                        Refresh
+                      </button>
                     </div>
                   </div>
 
@@ -473,11 +688,9 @@ function App() {
                         size={34}
                         className="mx-auto mb-3 text-[#9AA496]"
                       />
-
                       <p className="text-sm font-semibold">
                         No matching applications
                       </p>
-
                       <p className="mt-1 text-xs text-[#929B90]">
                         Try changing your search or status filter.
                       </p>
@@ -489,7 +702,7 @@ function App() {
                           key={item.id}
                           className="rounded-xl border border-[#EEEAE0] p-4 transition hover:border-[#B8C9B8] hover:bg-[#FEFDF8]"
                         >
-                          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
                             <div className="flex items-start gap-3">
                               <div className="rounded-xl bg-[#EAF0E9] p-3 text-[#39735B]">
                                 <FileText size={20} />
@@ -508,29 +721,53 @@ function App() {
                                   Application #{item.id} · Created{" "}
                                   {formatDate(item.created_at)}
                                 </p>
+
+                                <p className="mt-1 text-[11px] text-[#929B90]">
+                                  Date of birth: {formatDate(item.date_of_birth)}
+                                </p>
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between gap-4 sm:justify-end">
-                              <div className="text-right">
-                                <span
-                                  className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold ${getStatusClasses(
-                                    item.application_status
-                                  )}`}
+                            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                              <div className="min-w-32">
+                                <label
+                                  htmlFor={`status-${item.id}`}
+                                  className="mb-1 block text-[10px] text-[#929B90]"
                                 >
-                                  {getStatusLabel(item.application_status)}
-                                </span>
+                                  Application status
+                                </label>
 
-                                <p className="mt-2 text-[10px] capitalize text-[#929B90]">
-                                  {item.processing_type || "Processing not specified"}{" "}
-                                  processing
-                                </p>
+                                <select
+                                  id={`status-${item.id}`}
+                                  value={item.application_status || "draft"}
+                                  onChange={(event) =>
+                                    handleStatusChange(item, event.target.value)
+                                  }
+                                  className={`w-full rounded-lg border border-[#E7E3D8] px-3 py-2 text-xs font-semibold outline-none ${getStatusClasses(item.application_status)}`}
+                                >
+                                  {APPLICATION_STATUSES.map((status) => (
+                                    <option key={status} value={status}>
+                                      {getStatusLabel(status)}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
 
-                              <ArrowUpRight
-                                size={17}
-                                className="text-[#9AA496]"
-                              />
+                              <button
+                                onClick={() => openEditModal(item)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-[#DDE5D9] px-3 py-2 text-xs font-semibold text-[#39735B] transition hover:bg-[#EAF0E9]"
+                                title="Edit application"
+                              >
+                                <Pencil size={14} /> Edit
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteApplication(item)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-red-100 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                title="Delete application"
+                              >
+                                <Trash2 size={14} /> Delete
+                              </button>
                             </div>
                           </div>
                         </article>
@@ -540,7 +777,6 @@ function App() {
                 </div>
               </section>
             ) : activePage === "Overview" ? (
-
               /* OVERVIEW DASHBOARD */
               <>
                 <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
@@ -636,7 +872,6 @@ function App() {
                         <h3 className="font-semibold">
                           Recent applications
                         </h3>
-
                         <p className="mt-1 text-xs text-[#929B90]">
                           Live records from your NagrikAI database
                         </p>
@@ -772,7 +1007,6 @@ function App() {
                 </div>
               </>
             ) : (
-
               /* Other workspace sections */
               <section className="rounded-2xl border border-[#E9E5DA] bg-[#FFFCF5] p-8">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#EAF0E9] text-[#39735B]">
@@ -787,14 +1021,12 @@ function App() {
                   )}
                 </div>
 
-                <h1 className="text-2xl font-semibold">
-                  {activePage}
-                </h1>
+                <h1 className="text-2xl font-semibold">{activePage}</h1>
 
                 <p className="mt-2 max-w-xl text-sm leading-6 text-[#849083]">
                   This section is the next part of the NagrikAI workspace.
-                  The My Applications page is now connected to your live
-                  application records.
+                  Your My Applications page is now connected to the live
+                  application management APIs.
                 </p>
 
                 {activePage === "Documents" && (
@@ -826,6 +1058,199 @@ function App() {
           </div>
         </main>
       </div>
+
+      {/* CREATE / EDIT APPLICATION MODAL */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+          <div className="my-auto w-full max-w-xl rounded-2xl border border-[#E9E5DA] bg-[#FFFCF5] p-6 shadow-2xl md:p-8">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#849283]">
+                  APPLICATION WORKSPACE
+                </p>
+
+                <h2 className="mt-2 text-2xl font-semibold">
+                  {editingApplication
+                    ? "Edit application"
+                    : "Create application"}
+                </h2>
+
+                <p className="mt-1 text-xs text-[#929B90]">
+                  Enter the applicant information below.
+                </p>
+              </div>
+
+              <button
+                onClick={closeModal}
+                disabled={saving}
+                className="rounded-lg p-2 text-[#849083] transition hover:bg-[#F0EEE5] disabled:opacity-50"
+                aria-label="Close form"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {formError && (
+              <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
+
+            <form onSubmit={handleApplicationSubmit} className="space-y-5">
+              <div>
+                <label
+                  htmlFor="applicant_name"
+                  className="mb-2 block text-xs font-semibold text-[#52675A]"
+                >
+                  Applicant full name
+                </label>
+
+                <input
+                  id="applicant_name"
+                  name="applicant_name"
+                  type="text"
+                  minLength={2}
+                  maxLength={120}
+                  required
+                  value={formData.applicant_name}
+                  onChange={handleFormChange}
+                  placeholder="Enter applicant's full name"
+                  className="w-full rounded-xl border border-[#E7E3D8] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#39735B]"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="date_of_birth"
+                  className="mb-2 block text-xs font-semibold text-[#52675A]"
+                >
+                  Date of birth
+                </label>
+
+                <input
+                  id="date_of_birth"
+                  name="date_of_birth"
+                  type="date"
+                  required
+                  max={getMaximumDateOfBirth()}
+                  value={formData.date_of_birth}
+                  onChange={handleFormChange}
+                  className="w-full rounded-xl border border-[#E7E3D8] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#39735B]"
+                />
+
+                <p className="mt-1 text-[10px] text-[#929B90]">
+                  Applicant must be at least 18 years old.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="service_type"
+                    className="mb-2 block text-xs font-semibold text-[#52675A]"
+                  >
+                    Service type
+                  </label>
+
+                  <select
+                    id="service_type"
+                    name="service_type"
+                    value={formData.service_type}
+                    onChange={handleFormChange}
+                    className="w-full rounded-xl border border-[#E7E3D8] bg-white px-4 py-3 text-sm outline-none focus:border-[#39735B]"
+                  >
+                    <option value="fresh">Fresh passport</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="processing_type"
+                    className="mb-2 block text-xs font-semibold text-[#52675A]"
+                  >
+                    Processing type
+                  </label>
+
+                  <select
+                    id="processing_type"
+                    name="processing_type"
+                    value={formData.processing_type}
+                    onChange={handleFormChange}
+                    className="w-full rounded-xl border border-[#E7E3D8] bg-white px-4 py-3 text-sm outline-none focus:border-[#39735B]"
+                  >
+                    <option value="normal">Normal</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="citizenship_basis"
+                  className="mb-2 block text-xs font-semibold text-[#52675A]"
+                >
+                  Citizenship basis
+                </label>
+
+                <select
+                  id="citizenship_basis"
+                  name="citizenship_basis"
+                  value={formData.citizenship_basis}
+                  onChange={handleFormChange}
+                  className="w-full rounded-xl border border-[#E7E3D8] bg-white px-4 py-3 text-sm outline-none focus:border-[#39735B]"
+                >
+                  <option value="birth">By birth</option>
+                </select>
+              </div>
+
+              {editingApplication && (
+                <div className="rounded-xl bg-[#F0F2E9] p-4">
+                  <p className="text-xs font-semibold text-[#52675A]">
+                    Application ID: {editingApplication.id}
+                  </p>
+                  <p className="mt-1 text-xs text-[#849083]">
+                    Current status:{" "}
+                    {getStatusLabel(editingApplication.application_status)}
+                  </p>
+                  <p className="mt-1 text-[10px] text-[#929B90]">
+                    Use the status selector on the application card to update its status.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  disabled={saving}
+                  className="rounded-xl border border-[#E7E3D8] px-5 py-3 text-sm font-semibold text-[#607466] transition hover:bg-[#F4F2EA] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#183D32] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#285643] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      {editingApplication
+                        ? "Save changes"
+                        : "Create application"}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

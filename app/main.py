@@ -27,6 +27,8 @@ from app.crud.application_crud import (
     create_application,
     get_application_by_id,
     get_all_applications,
+    update_application,
+    delete_application,
 )
 
 from app.database import models
@@ -38,6 +40,7 @@ from app.schemas.update_schema import UpdateDocumentRequest
 
 from app.schemas.application_schema import (
     ApplicationCreate,
+    ApplicationUpdate,
     ApplicationResponse,
 )
 
@@ -58,7 +61,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow communication between React frontend and FastAPI backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -103,22 +105,22 @@ def home():
     "/applications",
     response_model=ApplicationResponse,
     status_code=201,
+    tags=["Applications"],
 )
 def create_application_api(
     request: ApplicationCreate,
     db: Session = Depends(get_db),
 ):
-    application = create_application(
+    return create_application(
         db=db,
         application_data=request,
     )
-
-    return application
 
 
 @app.get(
     "/applications",
     response_model=list[ApplicationResponse],
+    tags=["Applications"],
 )
 def read_applications(
     db: Session = Depends(get_db),
@@ -129,6 +131,7 @@ def read_applications(
 @app.get(
     "/applications/{application_id}",
     response_model=ApplicationResponse,
+    tags=["Applications"],
 )
 def read_application(
     application_id: int,
@@ -142,10 +145,68 @@ def read_application(
     if application is None:
         raise HTTPException(
             status_code=404,
-            detail="Application not found",
+            detail="Application not found.",
         )
 
     return application
+
+
+@app.put(
+    "/applications/{application_id}",
+    response_model=ApplicationResponse,
+    tags=["Applications"],
+)
+def update_application_api(
+    application_id: int,
+    request: ApplicationUpdate,
+    db: Session = Depends(get_db),
+):
+    application = get_application_by_id(
+        db=db,
+        application_id=application_id,
+    )
+
+    if application is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found.",
+        )
+
+    return update_application(
+        db=db,
+        application=application,
+        application_data=request,
+    )
+
+
+@app.delete(
+    "/applications/{application_id}",
+    tags=["Applications"],
+)
+def delete_application_api(
+    application_id: int,
+    db: Session = Depends(get_db),
+):
+    application = get_application_by_id(
+        db=db,
+        application_id=application_id,
+    )
+
+    if application is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found.",
+        )
+
+    delete_application(
+        db=db,
+        application=application,
+    )
+
+    return {
+        "message": "Application deleted successfully.",
+        "application_id": application_id,
+    }
 
 
 # --------------------------------------------------
@@ -182,30 +243,42 @@ def get_passport_checklist(
 # DOCUMENT APIs
 # --------------------------------------------------
 
-@app.get("/documents")
+@app.get(
+    "/documents",
+    tags=["Documents"],
+)
 def read_documents(
     db: Session = Depends(get_db),
 ):
     return get_all_documents(db)
 
 
-@app.get("/documents/{document_id}")
+@app.get(
+    "/documents/{document_id}",
+    tags=["Documents"],
+)
 def read_document(
     document_id: int,
     db: Session = Depends(get_db),
 ):
-    document = get_document_by_id(db, document_id)
+    document = get_document_by_id(
+        db,
+        document_id,
+    )
 
     if document is None:
         raise HTTPException(
             status_code=404,
-            detail="Document not found",
+            detail="Document not found.",
         )
 
     return document
 
 
-@app.put("/documents/{document_id}")
+@app.put(
+    "/documents/{document_id}",
+    tags=["Documents"],
+)
 def update_document_api(
     document_id: int,
     request: UpdateDocumentRequest,
@@ -221,27 +294,33 @@ def update_document_api(
     if document is None:
         raise HTTPException(
             status_code=404,
-            detail="Document not found",
+            detail="Document not found.",
         )
 
     return document
 
 
-@app.delete("/documents/{document_id}")
+@app.delete(
+    "/documents/{document_id}",
+    tags=["Documents"],
+)
 def delete_document_api(
     document_id: int,
     db: Session = Depends(get_db),
 ):
-    deleted = delete_document(db, document_id)
+    deleted = delete_document(
+        db,
+        document_id,
+    )
 
     if deleted is None:
         raise HTTPException(
             status_code=404,
-            detail="Document not found",
+            detail="Document not found.",
         )
 
     return {
-        "message": "Document deleted successfully"
+        "message": "Document deleted successfully."
     }
 
 
@@ -252,6 +331,7 @@ def delete_document_api(
 @app.post(
     "/upload",
     response_model=DocumentResponse,
+    tags=["Documents"],
 )
 async def upload_document(
     file: UploadFile = File(...),
@@ -268,7 +348,10 @@ async def upload_document(
 
         extension = Path(original_filename).suffix.lower()
 
-        if not original_filename or extension not in ALLOWED_EXTENSIONS:
+        if (
+            not original_filename
+            or extension not in ALLOWED_EXTENSIONS
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Only JPG, JPEG and PNG files are allowed.",
@@ -333,7 +416,7 @@ async def upload_document(
 
         extracted_text = extract_text(saved_file_path)
 
-        # 6. Extract information using Gemini Vision.
+        # 6. Extract information using Gemini.
 
         document_information = extract_document_information(
             image_path=saved_file_path,
@@ -353,7 +436,10 @@ async def upload_document(
             },
         )
 
-        fields_data = document_information.get("fields", {})
+        fields_data = document_information.get(
+            "fields",
+            {},
+        )
 
         document = Document(
             filename=original_filename,
@@ -361,7 +447,10 @@ async def upload_document(
                 "document_type",
                 "Unknown",
             ),
-            confidence=document_information.get("confidence", 0),
+            confidence=document_information.get(
+                "confidence",
+                0,
+            ),
             extracted_fields=fields_data,
             validation=validation_data,
             ocr_text=extracted_text,
@@ -379,7 +468,10 @@ async def upload_document(
                 "document_type",
                 "Unknown",
             ),
-            confidence=document_information.get("confidence", 0),
+            confidence=document_information.get(
+                "confidence",
+                0,
+            ),
             fields=fields_data,
             validation=validation_data,
             extracted_text=extracted_text,
@@ -391,7 +483,10 @@ async def upload_document(
     except Exception:
         db.rollback()
 
-        if saved_file_path and os.path.exists(saved_file_path):
+        if (
+            saved_file_path
+            and os.path.exists(saved_file_path)
+        ):
             os.remove(saved_file_path)
 
         logger.exception(
@@ -400,7 +495,10 @@ async def upload_document(
 
         raise HTTPException(
             status_code=500,
-            detail="Unable to process the uploaded document. Please try again.",
+            detail=(
+                "Unable to process the uploaded document. "
+                "Please try again."
+            ),
         )
 
     finally:
